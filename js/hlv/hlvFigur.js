@@ -1,11 +1,28 @@
 // =============================================================================
 // HLVFIGUR — en figur per indikator i HLV-rapporten.
 //
-// Kapitelsidorna innehåller platshållare <div class="hlv-figur" data-id="…">.
+// Kapitelsidorna innehåller platshållare
+//   <div class="hlv-figur" data-id="…" data-niva="…">.
 // hlvMontera() hämtar ../data/ind/<id>.json när figuren närmar sig skärmen och
-// ritar figuren.
+// ritar figuren. Figurer i en stängd <details> ritas när den öppnas.
 //
-// Tre flikar:
+// data-niva anger redovisningsnivån. Varje nivå har ett eget, fast diagram
+// utan andra val än skalan:
+//   lan         Halland över tid, riket som streckad tvilling
+//   kon         kvinnor och män över tid, alla som grå referens
+//   alder       en linje per åldersgrupp, alla 16–84 år som grå referens
+//   utbildning  en linje per utbildningsnivå (25–84 år, åldersstandardiserat)
+//   fodelse     inrikes och utrikes födda
+//   kommun      en panel per kommun med länet som grå linje; grön bock i
+//               panelrubriken = statistiskt säkerställd skillnad mot länet
+//   regso       punktdiagram: ett område per rad, grupperat per kommun, med
+//               konfidensintervall och länets nivå; färgen visar testets
+//               utfall (ur data.tester, alltså samma test som i texten)
+// Diagrammen påstår aldrig själva att en skillnad är säkerställd. Det gör
+// bara testtabellen ovanför diagrammet och, för RegSO, färgerna, som båda läser
+// resultatet av steg 12.
+//
+// data-niva="utforska" (eller inget värde) ger hela verktyget med tre flikar:
 //   Över tid          linjediagram 2014–2026 som små multiplar.
 //                     Dela upp:  Ingen | Ålder | Kommun  (en panel per grupp)
 //                     Serier:    Totalt, Kvinnor, Män (av/på var för sig)
@@ -56,20 +73,48 @@ const ritW = () => { const w = ritbredd(BREDD); return w < BREDD ? ritbredd(780)
 
 // ── Färger och linjer (Region Hallands profil, kontrollerade med
 // validate_palette: ljusband, kroma, färgseende och kontrast godkända) ──
+// Linjernas roller som i hosrapporten: totalt är fokus (grön, 2 px), grupperna
+// 1,75 px, jämförelsen (länet) en tunn grå linje utan punkter
 const SERIE = {
-  Totalt:  { farg: "#007A5C", bredd: 2.2, r: 3.3, form: "cirkel" },
-  Kvinnor: { farg: "#E06D00", bredd: 1.6, r: 2.9, form: "cirkel" },
-  "Män":   { farg: "#1F5FA8", bredd: 1.6, r: 2.9, form: "cirkel" },
-  Halland: { farg: "#B5BAB8", bredd: 1.3, r: 0, form: "ingen" }
+  Totalt:  { farg: "#00664D", bredd: 2, r: 3.5, form: "cirkel" },
+  Kvinnor: { farg: "#E06D00", bredd: 1.75, r: 2.75, form: "cirkel" },
+  "Män":   { farg: "#1F5FA8", bredd: 1.75, r: 2.75, form: "cirkel" },
+  Halland: { farg: "#A3A8A5", bredd: 1.4, r: 0, form: "ingen" }
 };
 const KON = ["Totalt", "Kvinnor", "Män"];
-// Riket som tvilling i samma panel: samma färg, tunt streckad, ihåliga punkter
-const RIKET_STIL = { bredd: 1.3, streck: "4,3", hal: true };
+// Riket som tvilling i samma panel: samma färg, streckad, ihåliga punkter
+const RIKET_STIL = { bredd: 1.25, streck: "5,4", hal: true };
+// Etiketterna vid linjeslutet och axlarna (hosrapportens grafspråk)
+const ETIKETT = { storlek: 13, avstand: 17, hake: "#8E8E89", ref: "#4E5450" };
+const AXEL = { text: "#1A1A1A", grid: "#CBCBC4", linje: "#1A1A1A" };
 // Egen jämförelse: validerad palett ur profilens färger
 const EGEN_FARGER = ["#1F5FA8", "#E06D00", "#007A5C", "#6650B8", "#B8321F", "#2390C8", "#8C7A00", "#A0587F"];
 const EGEN_MAX = EGEN_FARGER.length;
 const XAR = [2014, 2018, 2022, 2026];
 const ALDRAR = ["16–29", "30–44", "45–64", "65–84", "85+"];
+const UTBILDNING = ["Förgymnasial", "Gymnasial", "Eftergymnasial"];
+const FODELSE = ["Inrikes född", "Utrikes född"];
+// Nivåernas färger, ur samma validerade palett som egen jämförelse. Färgen
+// följer gruppen, inte ordningen.
+const NIVA_FARG = {
+  "16–29": "#2390C8", "30–44": "#007A5C", "45–64": "#8C7A00", "65–84": "#E06D00", "85+": "#B8321F",
+  "Förgymnasial": "#E06D00", "Gymnasial": "#6650B8", "Eftergymnasial": "#1F5FA8",
+  "Inrikes född": "#1F5FA8", "Utrikes född": "#E06D00"
+};
+// Testutfall (RegSO-punkterna och bockarna i kommunpanelerna). Som i
+// rapportens tabeller: grön bock = statistiskt säkerställd, grått = inte.
+// Riktningen syns av punktens läge mot länets linje.
+const SAK_FARG = "#00664D";
+const UTFALL = {
+  hogre: { farg: SAK_FARG, sak: true, text: "statistiskt säkerställt högre än länet" },
+  lagre: { farg: SAK_FARG, sak: true, text: "statistiskt säkerställt lägre än länet" },
+  ingen: { farg: "#9AA09D", sak: false, text: "ingen statistiskt säkerställd skillnad mot länet" },
+  ej:    { farg: "#9AA09D", sak: false, text: "inte testat" }
+};
+const NIVA_TITEL = {
+  lan: "länet över tid och jämfört med riket", kon: "kvinnor och män", alder: "åldersgrupper",
+  utbildning: "utbildningsnivå", fodelse: "födelseland", kommun: "kommunerna", regso: "områden i länet (RegSO)"
+};
 const VET_INTE = /^(vet inte|osäker|ingen åsikt|vill inte)/i;
 const LOGO = "../logo_farg.svg";
 const KALLA = "Källa: Hälsa på lika villkor, Region Halland, Folkhälsomyndigheten och SCB. Bearbetning: Region Halland.";
@@ -107,7 +152,17 @@ function sattGlobalEgen(lista) {
 function markor(g, cx, cy, form, farg, r, hal = false) {
   if (form === "ingen" || !(r > 0)) return null;
   return g.append("circle").attr("cx", cx).attr("cy", cy).attr("r", r)
-    .attr("fill", hal ? "#fff" : farg).attr("stroke", hal ? farg : "#fff").attr("stroke-width", hal ? 1.3 : 1.2);
+    .attr("fill", hal ? "#fff" : farg).attr("stroke", hal ? farg : "#fff").attr("stroke-width", hal ? 1.3 : 1.25);
+}
+
+// Grön bock (statistiskt säkerställd), samma tecken som i rapportens tabeller
+function bock(g, cx, cy, r = 6) {
+  const b = g.append("g").attr("transform", `translate(${cx},${cy})`).attr("role", "img").attr("aria-label", "statistiskt säkerställd");
+  b.append("title").text("Statistiskt säkerställd");
+  b.append("circle").attr("r", r).attr("fill", SAK_FARG);
+  b.append("path").attr("d", `M${-r * 0.45},${r * 0.02} L${-r * 0.1},${r * 0.36} L${r * 0.48},${-r * 0.34}`)
+    .attr("fill", "none").attr("stroke", "#fff").attr("stroke-width", r * 0.3).attr("stroke-linecap", "round").attr("stroke-linejoin", "round");
+  return b;
 }
 
 // Textfärg för en serie: seriens nyans, mörkad tills kontrasten mot vitt är
@@ -153,7 +208,8 @@ function markorIkon(parent, s, bredd = 24) {
   const sv = parent.append("svg").attr("width", bredd).attr("height", 12).attr("aria-hidden", "true").attr("class", "hlv-ikon");
   if (bredd > 14) sv.append("line").attr("x1", 1).attr("x2", bredd - 1).attr("y1", 6).attr("y2", 6).attr("stroke", s.farg)
     .attr("stroke-width", Math.min(s.bredd || 2, 2.6)).attr("stroke-dasharray", s.streck || null);
-  markor(sv, bredd / 2, 6, s.form || "cirkel", s.farg, 3.4, s.hal);
+  if (s.bock) bock(sv, bredd / 2, 6, 5.5);
+  else markor(sv, bredd / 2, 6, s.form || "cirkel", s.farg, 3.4, s.hal);
   return sv;
 }
 
@@ -167,24 +223,31 @@ export function hlvMontera(rot = document) {
     el.dataset.monterad = "1";
     fetch(`../data/ind/${el.dataset.id}.json`)
       .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .then(data => { el.innerHTML = ""; el.appendChild(hlvFigur(data)); })
+      .then(data => { el.innerHTML = ""; el.appendChild(hlvFigur(data, el.dataset.niva || "utforska")); })
       .catch(err => {
         el.innerHTML = `<p class="hlv-fel">Diagrammet kunde inte laddas (${el.dataset.id}).</p>`;
         console.error("hlvFigur", el.dataset.id, err);
       });
   };
-  if (!("IntersectionObserver" in window)) { platser.forEach(ladda); return; }
+  // Figurer i en stängd <details> (Utforska själv) ritas när den öppnas:
+  // innan dess har de ingen bredd att rita i
+  const iDetaljer = (el) => { const d = el.closest("details"); return d && !d.open ? d : null; };
+  platser.filter(iDetaljer).forEach(el => iDetaljer(el).addEventListener("toggle", function vid() {
+    if (this.open) { this.removeEventListener("toggle", vid); ladda(el); }
+  }));
+  const synliga = platser.filter(el => !iDetaljer(el));
+  if (!("IntersectionObserver" in window)) { synliga.forEach(ladda); return; }
   const io = new IntersectionObserver((poster) => {
     poster.forEach(p => { if (p.isIntersecting) { io.unobserve(p.target); ladda(p.target); } });
   }, { rootMargin: "800px 0px" });
-  platser.forEach(el => io.observe(el));
+  synliga.forEach(el => io.observe(el));
   if (/^#graf-/.test(location.hash)) platser.forEach(ladda);
 }
 
 // =============================================================================
 // FIGUREN
 // =============================================================================
-export function hlvFigur(data) {
+export function hlvFigur(data, niva = "utforska") {
   // JSON från R gör listor med ett element till skalärer: normalisera till listor
   const lista = (v) => v == null ? [] : Array.isArray(v) ? v : [v];
   data.ar = lista(data.ar);
@@ -192,16 +255,30 @@ export function hlvFigur(data) {
   data.fragor = lista(data.fragor);
   data.skattningar = lista(data.skattningar);
   data.fordelningar = lista(data.fordelningar);
+  data.tester = lista(data.tester);
+  data.omraden = lista(data.omraden);
+  const nivaLage = niva !== "utforska" && NIVA_TITEL[niva] != null;
   if (data.skala != null && !Array.isArray(data.skala)) data.skala = null;
   if (data.matt) data.matt.fragor = lista(data.matt.fragor);
   const andel = data.enhet === "procent";
   const dec = andel ? 0 : 1;
   const fmtV = (v) => fmtTal(v, dec);
-  const fmtVE = (v) => andel ? `${fmtTal(v, 0)} %` : `${fmtTal(v, 1)} p`;
+  const fmtVE = (v) => andel ? `${fmtTal(v, 0)} %` : `${fmtTal(v, 1)} p`;
   const sk = data.skattningar || [];
   const fo = data.fordelningar || [];
   const syntetisk = data.datakalla === "syntetisk";
   const kommuner = (data.kommuner_ordning || []).filter(k => sk.some(d => d.geo === k));
+
+  // Testutfall för en nivå senaste teståret: { grupp: "hogre" | "lagre" },
+  // bara de statistiskt säkerställda (data.tester kommer ur steg 12)
+  // Bara jämförelsen mot länet samma år (inte par, tid eller trend)
+  const motLan = (x) => ["kommun", "omrade", "snitt"].includes(x.t);
+  const utfallAr = (niv) => d3.max(data.tester.filter(x => x.niva === niv && motLan(x)), x => x.ar);
+  function utfallFor(niv, allaUtfall = false) {
+    const ar = utfallAr(niv);
+    return Object.fromEntries(data.tester.filter(x => x.niva === niv && motLan(x) && x.ar === ar && (allaUtfall || x.u === "hogre" || x.u === "lagre"))
+      .map(x => [x.g, x.u]));
+  }
 
   // Uppslag: år|geografi|grupptyp|grupp
   const index = new Map(sk.map(d => [`${d.ar}|${d.geo}|${d.gt}|${d.g}`, d]));
@@ -226,9 +303,9 @@ export function hlvFigur(data) {
   if (fo.length) vyer.push({ key: "fordelning", label: "Svarsfördelning" });
   if (tidsTyp) vyer.push({ key: "egen", label: "Egen jämförelse" });
 
-  const ram = skapaRam({ title: data.rubrik, subtitle: "", caption: "" });
+  const ram = skapaRam({ title: nivaLage ? `${data.rubrik}: ${NIVA_TITEL[niva]}` : data.rubrik, subtitle: "", caption: "" });
   ram.container.classed("hlv-graf", true);
-  if (!vyer.length) {
+  if (!vyer.length || (nivaLage && !indAr.length)) {
     ram.svgWrap.append("p").attr("class", "hlv-tom").text("Det finns inga skattningar att visa för indikatorn.");
     return ram.node();
   }
@@ -369,6 +446,18 @@ export function hlvFigur(data) {
     ram.controlsLeft.selectAll("*").remove();
     ram.controlsRight.selectAll("*").remove();
     ram.body.selectAll(".graf-meny").remove();
+    if (nivaLage) {
+      reglage.selectAll("*").remove();
+      if (niva !== "regso") {
+        const g = reglage.append("div").attr("class", "hlv-reglage-grupp");
+        g.append("span").attr("class", "hlv-reglage-etikett").text("Skala");
+        skalVal(g);
+      }
+      ram.svgWrap.selectAll("*").remove();
+      ritaNiva();
+      tabellEl.style("display", tabellSynlig ? null : "none");
+      return;
+    }
     byggReglage();
     const egen = st.vy === "egen";
     ram.container.classed("hlv-egen-lage", egen);
@@ -411,12 +500,15 @@ export function hlvFigur(data) {
       });
       if (egenPanel) { grupp = 2; kolRubriker = ["Halland", "Riket"]; }
     } else if (st.dela === "kommun") {
-      lista.push({ titel: "Halland", etikett: "Halland", geo: "Halland", serier: serier("Halland", null) });
-      if (egenPanel) lista.push({ titel: "Riket", etikett: "Riket", geo: "Riket", riketPanel: true, serier: serier("Riket", null) });
-      const huvud = valda[0];
-      kommuner.forEach(k => lista.push({ titel: k, etikett: k, geo: k, kommun: true, serier: [
-        { ...SERIE.Halland, namn: `Halland, ${huvud.toLowerCase()}`, kon: huvud, geo: "Halland", ...gtg(huvud, null), ref: true },
-        ...serier(k, null)] }));
+      // Kommunerna redovisas bara totalt (inte efter kön eller ålder), så
+      // även länets panel visar bara totalt
+      const tot = (geo, namn) => ({ ...SERIE.Totalt, namn, kon: "Totalt", geo, ...gtg("Totalt", null) });
+      lista.push({ titel: "Halland", etikett: "Halland", geo: "Halland", serier: [tot("Halland", "Länet")] });
+      if (egenPanel) lista.push({ titel: "Riket", etikett: "Riket", geo: "Riket", riketPanel: true, serier: [tot("Riket", "Riket")] });
+      const ut = utfallFor("kommun");
+      kommuner.forEach(k => lista.push({ titel: k, bock: !!(ut[k] && UTFALL[ut[k]].sak), etikett: k, geo: k, kommun: true, serier: [
+        { ...SERIE.Halland, namn: "Länet", kon: "Totalt", geo: "Halland", ...gtg("Totalt", null), ref: true },
+        tot(k, "Kommunen")] }));
     } else {
       lista.push({ titel: egenPanel ? "Halland" : null, etikett: "Halland", geo: "Halland", serier: serier("Halland", null) });
       if (egenPanel) { lista.push({ titel: "Riket", etikett: "Riket", geo: "Riket", riketPanel: true, serier: serier("Riket", null) }); cols = 2; }
@@ -430,6 +522,10 @@ export function hlvFigur(data) {
   const huvudserie = (p) => p.serier.find(s => !s.ref && !s.riket);
 
   function legendSerier(P, punkter = false) {
+    if (st.dela === "kommun") {
+      return legend([{ namn: "Kommunen (i första panelen länet)", farg: SERIE.Totalt.farg, bredd: SERIE.Totalt.bredd, form: "cirkel" },
+        { namn: "Länet, som jämförelse", farg: SERIE.Halland.farg, bredd: SERIE.Halland.bredd, form: "ingen" }]);
+    }
     const p0 = P.lista[0];
     const poster = p0.serier.filter(s => !s.ref && !s.riket).map(s => ({ namn: s.namn, farg: s.farg, bredd: s.bredd, form: s.form }));
     const ref = P.lista.find(p => p.serier.some(s => s.ref));
@@ -444,7 +540,8 @@ export function hlvFigur(data) {
     const panel = {
       ingen: P.egenPanel ? " Halland och riket i var sin panel." : "",
       alder: P.egenPanel ? " Varje åldersgrupp har två paneler: Halland till vänster, riket till höger." : " En panel per åldersgrupp.",
-      kommun: ` En panel per kommun, norr till söder; den grå linjen är Halland.${P.egenPanel ? " Riket i egen panel." : ""}`
+      kommun: ` En panel per kommun, norr till söder; den grå linjen är Halland.${P.egenPanel ? " Riket i egen panel." : ""}` +
+        (Object.keys(utfallFor("kommun")).length ? ` Grön bock vid namnet: kommunen skiljer sig statistiskt säkerställt från länet ${utfallAr("kommun")}.` : "")
     }[st.dela];
     const riket = P.tvilling ? (ar ? " Ihåliga punkter: riket i samma grupp." : " Streckade linjer: riket i samma grupp.") : "";
     return `${matt}, ${alder}${ar ? ", " + ar : ""}.${panel}${riket}` +
@@ -487,12 +584,10 @@ export function hlvFigur(data) {
   // ===========================================================================
   // TOOLTIP: tabell med värde och konfidensintervall, Halland mot riket (eller
   // kommunen mot Halland), skillnaden och förändringen sedan föregående år.
-  // Skillnader prövas med z-test på oberoende skattningar; standardfelet
-  // härleds ur konfidensintervallet (som i texterna).
+  // Verktygstipset prövar inga skillnader: om en skillnad är statistiskt
+  // säkerställd står bara i testtabellen ovanför diagrammet (steg 12).
   // ===========================================================================
-  const se = (d) => (d.h - d.l) / (2 * 1.959964);
   const harKi = (d) => synlig(d) && d.l != null && d.h != null;
-  const sakerstalld = (a, b) => harKi(a) && harKi(b) && Math.abs(a.v - b.v) > 1.959964 * Math.hypot(se(a), se(b));
   const fmtDiff = (v) => {
     const r = Math.round(Math.abs(v) * 10 ** dec) / 10 ** dec;
     return r === 0 ? "±0" : `${v > 0 ? "+" : "−"}${fmtTal(r, dec)}`;
@@ -518,17 +613,15 @@ export function hlvFigur(data) {
     const cell = (d, fet) => !d ? `<td class="hlv-tt-tom">–</td>`
       : !synlig(d) ? `<td class="hlv-tt-tom">för få svar</td>`
       : `<td${fet ? ' class="hlv-tt-fokus"' : ""}><span class="hlv-tt-v">${fmtVE(d.v)}</span>${harKi(d) ? `<span class="hlv-tt-ki">${fmtV(d.l)}–${fmtV(d.h)}</span>` : ""}</td>`;
-    const diff = (a, b) => {
-      if (!synlig(a) || !synlig(b)) return `<td class="hlv-tt-tom">–</td>`;
-      const s = sakerstalld(a, b);
-      return `<td class="hlv-tt-diff${s ? " hlv-tt-sak" : ""}">${fmtDiff(a.v - b.v)}${s ? "<sup>*</sup>" : '<sup class="hlv-tt-plats">*</sup>'}</td>`;
-    };
+    const diff = (a, b) => !synlig(a) || !synlig(b) ? `<td class="hlv-tt-tom">–</td>`
+      : `<td class="hlv-tt-diff">${fmtDiff(a.v - b.v)}</td>`;
     const th = (t, f) => `<th${f ? ' class="hlv-tt-fokus"' : ""}>${t}</th>`;
     const huvud = `<th></th>${th(kolA, fokus === kolA && visaB)}${visaB ? th(kolB, fokus === kolB) : ""}${visaDiff ? th(diffRubrik) : ""}${visaF ? th(foreRubrik) : ""}`;
     const kropp = rader.map(r => `<tr><td class="hlv-tt-namn"><span class="hlv-tt-prick${r.hal ? " hlv-tt-prick--hal" : ""}" style="--farg:${r.farg}"></span>${r.namn}</td>` +
       `${cell(r.a, fokus === kolA && visaB)}${visaB ? cell(r.b, fokus === kolB) : ""}${visaDiff ? diff(r.a, r.b) : ""}${visaF ? diff(r.nu, r.f) : ""}</tr>`).join("");
     const forklaring = [`Små siffror: 95 % konfidensintervall.`,
-      visaDiff || visaF ? `Skillnader i ${ENHET_DIFF}; <b>*</b> = statistiskt säkerställd.` : null, fot || null].filter(Boolean).join(" ");
+      visaDiff || visaF ? `Skillnader i ${ENHET_DIFF}. Om de är statistiskt säkerställda står i tabellen ovanför diagrammet.` : null,
+      fot || null].filter(Boolean).join(" ");
     return `<div class="hlv-tt"><div class="hlv-tt-rubrik"><span class="hlv-tt-ar">${rubrik}</span><span class="hlv-tt-under">${under}</span></div>` +
       `<table class="hlv-tt-tabell"><thead><tr>${huvud}</tr></thead><tbody>${kropp}</tbody></table>` +
       `<div class="hlv-tt-fot">${forklaring}</div></div>`;
@@ -541,7 +634,7 @@ export function hlvFigur(data) {
     const geoB = p.kommun ? "Halland" : (harRiket ? "Riket" : null);
     const geoF = p.geo;                                   // förändringen gäller panelens område
     const a = p.alder || null;
-    const valda = KON.filter(k => st.serier[k]);
+    const valda = st.dela === "kommun" ? ["Totalt"] : KON.filter(k => st.serier[k]);
     const t0 = gtg(valda[0], a);
     const fore = foregaende(ar, geoF, t0.gt, t0.g);
     const rader = valda.map(k => {
@@ -605,20 +698,23 @@ export function hlvFigur(data) {
   // ===========================================================================
   // ÖVER TID: små multiplar (eller en panel)
   // ===========================================================================
-  function ritaTid({ P = paneler(), mal = ram.svgWrap, W = ritW(), sub = null, egen = false } = {}) {
+  // tip: egen funktion (panel, år) -> html för verktygstipset (nivådiagrammen)
+  function ritaTid({ P = paneler(), mal = ram.svgWrap, W = ritW(), sub = null, egen = false, tip = null } = {}) {
     const pan = P.lista;
     const smal = W < 600;
     const ensam = pan.length === 1;
     const gs = P.grupp || 1;
-    const gutter = 44, gapInre = smal ? 10 : 14, gapYttre = smal ? 18 : 34;
-    const titelH = ensam && !pan[0].titel ? 0 : 24, xAxelH = 26, radGap = 18;
+    // Vänstermarginalen: den bredaste y-etiketten + 12 px (hosrapportens regel)
+    const gutter = (smal ? 8 : 12) + matText(andel ? "100 %" : "00,0", { size: smal ? 11.5 : 13 }), gapInre = smal ? 10 : 14, gapYttre = smal ? 18 : 34;
+    const titelH = ensam && !pan[0].titel ? 0 : 24, xAxelH = ensam ? 30 : 26, radGap = 18;
     const kolH = P.kolRubriker ? 20 : 0;
-    const visaVarde = ensam;
+    const etStorlek = smal ? 12 : ETIKETT.storlek;
 
-    // Etikettkolumnen till höger: så bred som den bredaste etiketten
+    // Etikettkolumnen till höger: så bred som den bredaste etiketten. Bara
+    // namnet står vid linjen; värdena finns i tabellen och verktygstipset.
     const etikettText = (s) => kort(s.kortNamn || s.namn, smal ? 16 : (egen ? 24 : 26));
-    const textW = d3.max(pan.flatMap(p => p.serier), s => matText(etikettText(s), { size: 12, weight: 600 })) || 40;
-    const hoger = Math.min(smal ? 118 : (egen ? 190 : 230), textW + (visaVarde ? matText(" 100 %", { size: 12 }) : 0) + 30);
+    const textW = d3.max(pan.flatMap(p => p.serier), s => matText(etikettText(s), { size: etStorlek, weight: 600 })) || 40;
+    const hoger = Math.min(smal ? 118 : (egen ? 190 : 230), textW + 26);
 
     // Kolumner: så många att panelerna blir minst ~175 px breda (par: 150 px)
     const tillg = W - gutter - hoger;
@@ -635,7 +731,7 @@ export function hlvFigur(data) {
     const pw = bredd(cols);
     // Höjden följer bredden: små multiplar nära kvadratiska, en ensam panel bredare
     const ph = egen ? Math.max(220, Math.min(380, pw * 0.72))
-      : ensam ? Math.max(240, Math.min(400, pw * 0.56))
+      : ensam ? Math.max(smal ? 220 : 300, Math.min(460, W * 0.5))
       : Math.max(smal ? 112 : 140, Math.min(310, pw * (gs === 2 ? 0.88 : 0.8)));
     const colX = (c) => { const gi = Math.floor(c / gs); return gutter + c * pw + gi * gapYttre + (c - gi) * gapInre; };
     // Årtal bara under den nedersta panelen i varje kolumn (Datawrapper 2024)
@@ -675,24 +771,30 @@ export function hlvFigur(data) {
       const { c, r } = pos(i);
       const px = colX(c), py = topp + radY(r) + titelH;
       const g = svg.append("g").attr("transform", `translate(${px},${py})`);
-      if (p.titel) svg.append("text").attr("x", px).attr("y", py - 9).attr("font-family", TYP.ui).attr("font-size", 13)
-        .attr("font-weight", 650).attr("fill", FARG.ink).text(p.titel);
+      if (p.titel) {
+        // Bocken före namnet: textens bredd går inte att mäta innan diagrammet syns
+        if (p.bock) bock(svg, px + 6, py - 13.5, 6);
+        svg.append("text").attr("x", px + (p.bock ? 17 : 0)).attr("y", py - 9).attr("font-family", TYP.ui).attr("font-size", 13)
+          .attr("font-weight", 650).attr("fill", FARG.ink).text(p.titel);
+      }
 
       // Grid och axlar
+      // Bara vågräta stödlinjer, streckade; ingen y-axellinje (hosrapportens grafspråk)
+      const axelText = ensam && !smal ? 13 : 11.5;
       yt.forEach(t => g.append("line").attr("x1", 0).attr("x2", pw).attr("y1", y(t)).attr("y2", y(t))
-        .attr("stroke", t === 0 ? FARG.noll : "#e3e5e4").attr("stroke-width", t === 0 ? 1 : 0.8).attr("stroke-dasharray", t === 0 ? null : "2,3"));
+        .attr("stroke", AXEL.grid).attr("stroke-width", 0.8).attr("stroke-dasharray", "4,4").attr("shape-rendering", "crispEdges"));
       if (c === 0) {
-        yt.forEach(t => g.append("text").attr("x", -8).attr("y", y(t)).attr("dy", "0.32em").attr("text-anchor", "end")
-          .attr("font-family", TYP.ui).attr("font-size", 11.5).attr("fill", FARG.text).style("font-variant-numeric", "tabular-nums")
-          .text(andel ? `${fmtTal(t)} %` : fmtTal(t)));
+        yt.forEach(t => g.append("text").attr("x", -10).attr("y", y(t)).attr("dy", "0.32em").attr("text-anchor", "end")
+          .attr("font-family", TYP.ui).attr("font-size", axelText).attr("fill", AXEL.text).style("font-variant-numeric", "tabular-nums")
+          .text(andel ? `${fmtTal(t)} %` : fmtTal(t)));
         if (avkortad) g.append("path").attr("d", `M-6,${ph - 3} l4,-4 l4,4 l4,-4`).attr("fill", "none").attr("stroke", FARG.text).attr("stroke-width", 1.1);
       }
-      g.append("line").attr("x1", 0).attr("x2", pw).attr("y1", ph).attr("y2", ph).attr("stroke", FARG.axel);
+      g.append("line").attr("x1", 0).attr("x2", pw).attr("y1", ph).attr("y2", ph).attr("stroke", AXEL.linje).attr("shape-rendering", "crispEdges");
       const kortAr = pw < 170;
       XAR.forEach(a => {
-        g.append("line").attr("x1", x(a)).attr("x2", x(a)).attr("y1", ph).attr("y2", ph + 4).attr("stroke", FARG.axel);
-        if (arEtikett(i)) g.append("text").attr("x", x(a)).attr("y", ph + 17).attr("text-anchor", "middle").attr("font-family", TYP.ui)
-          .attr("font-size", kortAr ? 10.5 : 11.5).attr("fill", data.ar.includes(a) ? FARG.text : FARG.mjuk)
+        g.append("line").attr("x1", x(a)).attr("x2", x(a)).attr("y1", ph).attr("y2", ph + 5).attr("stroke", AXEL.linje);
+        if (arEtikett(i)) g.append("text").attr("x", x(a)).attr("y", ph + (ensam ? 20 : 17)).attr("text-anchor", "middle").attr("font-family", TYP.ui)
+          .attr("font-size", kortAr ? 10.5 : axelText).attr("fill", data.ar.includes(a) ? AXEL.text : FARG.mjuk)
           .text(kortAr ? `’${String(a).slice(2)}` : a);
       });
       if (p.riketPanel && !p.serier.some(s => finnsSerie(s.geo, s.gt, s.g)))
@@ -709,28 +811,30 @@ export function hlvFigur(data) {
           .attr("stroke-linejoin", "round").attr("stroke-linecap", s.streck ? "butt" : "round").attr("stroke-dasharray", s.streck || null)
           .attr("d", d3.line().x(q => x(q.ar)).y(q => y(q.d.v)));
       }));
-      ordning.forEach(({ s, pts }) => pts.forEach(q => markor(g, x(q.ar), y(q.d.v), s.form, s.farg, s.r, s.hal)));
+      // Punkterna med vit ring; den sista punkten i varje serie är något större
+      ordning.forEach(({ s, pts }) => pts.forEach((q, k) =>
+        markor(g, x(q.ar), y(q.d.v), s.form, s.farg, k === pts.length - 1 && !s.hal ? s.r * 1.4 : s.r, s.hal)));
 
-      // Direktetiketter: i värdeordning, centrerade kring linjeändarna, med tunna förbindelselinjer
+      // Direktetiketter: bara namnet, i värdeordning, med en tunn grå hake till
+      // linjeänden (hosrapportens etiketter). Kolliderande etiketter slås ihop
+      // och centreras kring linjeändarnas medelvärde.
       if (i === etikettIndex) {
         const poster = ordning.map(({ s, pts }) => {
           const q = pts[pts.length - 1];
           return { s, x: x(q.ar), ideal: y(q.d.v), v: q.d.v };
         });
         const ovre = r === 0 ? -(py - 6) : -titelH + 2;
-        placeraEtiketter(poster, 15, ovre, ph + 8);
-        const lx = pw + 24, kna = pw + 8;
+        placeraEtiketter(poster, smal ? 15 : ETIKETT.avstand, ovre, ph + 8);
+        const sistaX = d3.max(poster, e => e.x) || pw;
+        const lx = Math.max(sistaX + 21, pw + 8);
         const et = g.append("g").attr("class", "hlv-etiketter");
         poster.forEach(e => {
-          const x0 = e.x + (e.s.r || 0) + 3;
-          et.append("path").attr("d", Math.abs(e.y - e.ideal) < 0.75 ? `M${x0},${e.ideal}H${lx - 5}`
-            : `M${x0},${e.ideal}H${kna}C${kna + 7},${e.ideal} ${lx - 12},${e.y} ${lx - 5},${e.y}`)
-            .attr("fill", "none").attr("stroke", e.s.farg).attr("stroke-width", 0.9).attr("stroke-opacity", e.s.ref ? 0.9 : 0.55)
-            .attr("stroke-dasharray", e.s.riket ? "2,2" : null);
-          const t = et.append("text").attr("x", lx).attr("y", e.y).attr("dy", "0.35em").attr("font-family", TYP.ui).attr("font-size", 12);
-          t.append("tspan").attr("font-weight", e.s.ref || e.s.riket ? 500 : (e.s.namn === "Totalt" ? 650 : 600))
-            .attr("fill", e.s.ref ? FARG.text : textFarg(e.s.farg)).text(etikettText(e.s));
-          if (visaVarde) t.append("tspan").attr("font-weight", 400).attr("fill", FARG.text).text(` ${fmtVE(e.v)}`);
+          const x0 = e.x + (e.s.r ? e.s.r * 1.4 : 0) + 4;
+          et.append("path").attr("d", `M${x0},${e.ideal}H${lx - 9}V${e.y}H${lx - 3}`)
+            .attr("fill", "none").attr("stroke", ETIKETT.hake).attr("stroke-width", 0.6);
+          et.append("text").attr("x", lx).attr("y", e.y).attr("dy", "0.35em").attr("font-family", TYP.ui).attr("font-size", etStorlek)
+            .attr("font-weight", e.s.ref || e.s.riket ? 400 : 600)
+            .attr("fill", e.s.ref ? ETIKETT.ref : textFarg(e.s.farg)).text(etikettText(e.s));
         });
       }
 
@@ -747,7 +851,7 @@ export function hlvFigur(data) {
           const d = rad(ar, s.geo, s.gt, s.g);
           if (synlig(d)) markor(fokus, x(ar), y(d.v), "cirkel", s.farg, s.ref ? 3 : s.r + 1.9, s.hal);
         });
-        visaTip(egen ? egenTip(p.serier, ar) : tidTip(p, ar), svg.node(), W, { x0: px + x(ar), x1: px + x(ar), y0: py, y1: py + ph }, "sida");
+        visaTip(tip ? tip(p, ar) : egen ? egenTip(p.serier, ar) : tidTip(p, ar), svg.node(), W, { x0: px + x(ar), x1: px + x(ar), y0: py, y1: py + ph }, "sida");
       };
       g.append("rect").attr("x", -6).attr("y", -4).attr("width", pw + 12).attr("height", ph + 8).attr("fill", "transparent")
         .style("cursor", "crosshair")
@@ -755,13 +859,15 @@ export function hlvFigur(data) {
         .on("pointerleave", () => { hair.style("display", "none"); fokus.selectAll("*").remove(); tooltip.dolj(); });
     });
 
-    if (!egen) legendSerier(P);
-    const undertext = sub || undertitel(P, avkortad, dom);
+    // Ett ensamt diagram har namnen vid linjerna och behöver ingen förklaring
+    // ovanför (som i hosrapporten). Rutnät av paneler behåller den.
+    if (!egen && !tip) { if (ensam) legend([]); else legendSerier(P); }
+    const undertext = sub ? sub + (avkortad ? ` Y-axeln börjar på ${fmtTal(dom[0])}${andel ? " %" : ""}.` : "") : undertitel(P, avkortad, dom);
     ram.setSubtitle(undertext);
     const fot = [KALLA,
       harBrott ? `Linjen bryts före ${brott}: ${data.brott_text}` : null,
       data.ar[0] > 2014 ? `Indikatorn kan beräknas från ${data.ar[0]}.` : null,
-      harRiket ? "Riket finns för 2022 och 2026." : null,
+      pan.some(p => p.serier.some(s => s.geo === "Riket")) ? "Riket finns för 2022 och 2026." : null,
       syntetisk ? "OBS: SYNTETISK TESTDATA." : null].filter(Boolean).join(" ");
     ram.setCaption(fot);
     sattTabell(TABELLHUVUD, tabellRader(pan, data.ar));
@@ -772,7 +878,7 @@ export function hlvFigur(data) {
   // ETT ÅR: punktdiagram (frågan finns bara ett år). Riket alltid som ihålig
   // tvilling på samma rad, förbunden med Hallands punkt.
   // ===========================================================================
-  function ritaEttAr({ P = paneler({ tvillingAlltid: true }), mal = ram.svgWrap, W = ritW(), sub = null, egen = false } = {}) {
+  function ritaEttAr({ P = paneler({ tvillingAlltid: true }), mal = ram.svgWrap, W = ritW(), sub = null, egen = false, tip = null } = {}) {
     const ar = indAr[0];
     const pan = P.lista;
     const smal = W < 600;
@@ -793,8 +899,9 @@ export function hlvFigur(data) {
       const cy = mT + i * radH + radH / 2;
       const bakgrund = svg.append("rect").attr("x", 0).attr("y", cy - radH / 2).attr("width", W).attr("height", radH).attr("rx", 6).attr("fill", "transparent");
       if (i) svg.append("line").attr("x1", 0).attr("x2", W).attr("y1", cy - radH / 2).attr("y2", cy - radH / 2).attr("stroke", "#f0f1f0");
-      svg.append("text").attr("x", mL - 14).attr("y", cy).attr("dy", "0.35em").attr("text-anchor", "end").attr("font-family", TYP.ui)
+      const namnText = svg.append("text").attr("x", mL - 14).attr("y", cy).attr("dy", "0.35em").attr("text-anchor", "end").attr("font-family", TYP.ui)
         .attr("font-size", smal ? 11.5 : 12.5).attr("font-weight", 600).attr("fill", FARG.ink).text(kort(p.titel || p.etikett, egen ? 28 : 22));
+      if (p.bock) { namnText.attr("x", mL - 30); bock(svg, mL - 20, cy, 6); }
       p.serier.filter(s => s.ref).forEach(s => {
         const d = rad(ar, s.geo, s.gt, s.g); if (!synlig(d)) return;
         svg.append("line").attr("x1", x(d.v)).attr("x2", x(d.v)).attr("y1", cy - radH / 2 + 5).attr("y2", cy + radH / 2 - 5)
@@ -818,17 +925,169 @@ export function hlvFigur(data) {
       const band = svg.append("rect").attr("x", 0).attr("y", cy - radH / 2).attr("width", W).attr("height", radH).attr("fill", "transparent");
       band.on("pointermove pointerdown", () => {
         bakgrund.attr("fill", "#f3f5f4");
-        const html = egen ? egenTip(P.lista.map(q => q.serier[0]), ar, hs && hs.namn) : tidTip(p, ar);
+        const html = tip ? tip(p, ar) : egen ? egenTip(P.lista.map(q => q.serier[0]), ar, hs && hs.namn) : tidTip(p, ar);
         visaTip(html, svg.node(), W, { x0: mL, x1: W - mR, y0: cy - radH / 2, y1: cy + radH / 2 }, "ovanunder");
       }).on("pointerleave", () => { bakgrund.attr("fill", "transparent"); tooltip.dolj(); });
     });
-    if (!egen) legendSerier(P, true);
+    if (!egen && !tip) legendSerier(P, true);
     const undertext = sub || undertitel(P, avkortad, dom, ar);
     ram.setSubtitle(undertext);
     const fot = `${KALLA} Frågan ställdes första gången ${ar}, så jämförelse över tid saknas.${syntetisk ? " OBS: SYNTETISK TESTDATA." : ""}`;
     ram.setCaption(fot);
     sattTabell(TABELLHUVUD, tabellRader(pan, [ar]));
     verktyg(svg, W, H, undertext, fot);
+  }
+
+  // ===========================================================================
+  // NIVÅDIAGRAM: ett fast diagram per redovisningsnivå
+  // ===========================================================================
+  const MATT = andel ? "Andel i procent" : "Medelvärde, poäng";
+  // Verktygstips i nivådiagrammen: varje serie med värde, intervall och antal
+  function nivaTip(serier, ar, under) {
+    const rader = serier.map(s => ({ namn: s.namn, farg: s.farg, hal: s.hal, a: rad(ar, s.geo, s.gt, s.g) }));
+    const n = rader.filter(r => synlig(r.a) && r.a.n != null).map(r => `${r.namn} ${fmtTal(r.a.n)}`);
+    return tipHtml({ rubrik: String(ar), under, kolA: "Värde", diffRubrik: null, rader,
+      fot: [n.length ? `Svarande: ${n.join(", ")}.` : null, "Vilka skillnader som är statistiskt säkerställda står i tabellen ovanför diagrammet."].filter(Boolean).join(" ") });
+  }
+  const refSerie = (namn) => ({ ...SERIE.Halland, namn, geo: "Halland", gt: "Totalt", g: "Totalt", ref: true });
+  const gruppSerier = (gt, grupper, namn) => grupper.filter(g => finnsSerie("Halland", gt, g))
+    .map(g => ({ farg: NIVA_FARG[g], bredd: 1.8, r: 3.1, form: "cirkel", namn: namn(g), geo: "Halland", gt, g }));
+
+  function ritaNiva() {
+    if (niva === "regso") return ritaOmraden();
+    if (niva === "kommun") {
+      st.dela = "kommun"; st.serier = { Totalt: true, Kvinnor: false, "Män": false }; st.riket = "av";
+      return ettAr ? ritaEttAr() : ritaTid();
+    }
+    const tot = { ...SERIE.Totalt, namn: "Halland", geo: "Halland", gt: "Totalt", g: "Totalt" };
+    let serier, sub, under;
+    if (niva === "lan") {
+      serier = [tot];
+      if (harRiket) serier.push({ ...tot, ...RIKET_STIL, r: Math.max(2.5, tot.r - 0.3), geo: "Riket", riket: true, bas: tot, namn: "Riket" });
+      sub = `${MATT}, 16–84 år.${harRiket ? (ettAr ? " Ihålig punkt: riket." : " Streckad linje med ihåliga punkter: riket, som finns för 2022 och 2026.") : ""}`;
+      under = "16–84 år";
+    } else if (niva === "kon") {
+      serier = [refSerie("Alla"), ...["Kvinnor", "Män"].map(k => ({ ...SERIE[k], namn: k, geo: "Halland", ...gtg(k, null) }))];
+      sub = `${MATT}, 16–84 år. Grå linje: alla.`;
+      under = "16–84 år";
+    } else if (niva === "alder") {
+      serier = [refSerie("Alla 16–84 år"), ...gruppSerier("Ålder", ALDRAR, a => `${a} år`)];
+      sub = ettAr ? `${MATT} per åldersgrupp. Grått streck: alla 16–84 år.`
+        : `${MATT} per åldersgrupp. Grå linje: alla 16–84 år. Gruppen 85+ finns från 2022.`;
+      under = "Åldersgrupper";
+    } else if (niva === "utbildning") {
+      serier = gruppSerier("Utbildning", UTBILDNING, g => g);
+      sub = `${MATT} efter högsta utbildning, 25–84 år${data.utbildning_standardiserad ? ", åldersstandardiserad: grupperna har räknats om till samma åldersfördelning" : ""}.`;
+      under = "25–84 år";
+    } else {
+      serier = gruppSerier("Födelseland", FODELSE, g => g);
+      sub = `${MATT}, 16–84 år.`;
+      under = "16–84 år";
+    }
+    const egna = serier.filter(s => !s.ref && !s.riket);
+    if (!egna.length && niva !== "lan") {
+      ram.svgWrap.append("p").attr("class", "hlv-tom").text("För få svarande för att redovisa den här nivån.");
+      return;
+    }
+    // Linjediagrammen har namnen vid linjeslutet och ingen förklaringsrad
+    // (hosrapportens grafspråk); punktdiagrammet för ett år behåller den
+    legend(ettAr ? serier.map(s => ({ namn: s.namn, farg: s.farg, bredd: s.ref ? 1.3 : s.bredd, form: s.ref ? "ingen" : s.form, hal: s.hal, streck: s.streck })) : []);
+    const tip = (p, ar) => nivaTip(p.serier, ar, under);
+    if (ettAr) {
+      // Frågan finns bara ett år: en rad per grupp, alla som grå referenslinje
+      const refs = serier.filter(s => s.ref);
+      const P = niva === "lan" ? { lista: [{ titel: "Halland", etikett: "Halland", serier }] }
+        : { lista: egna.map(s => ({ titel: s.namn, etikett: s.namn, serier: [...refs, s] })) };
+      ritaEttAr({ P, sub: `${sub.replace("Grå linje", "Grått streck")} Avser ${indAr[0]}.`, tip: (p, ar) => nivaTip([...refs, ...p.serier.filter(s => !s.ref)], ar, under) });
+    } else {
+      ritaTid({ P: { lista: [{ titel: null, etikett: "Halland", serier }] }, sub, tip });
+    }
+  }
+
+  // RegSO: ett område per rad, grupperat per kommun (norr till söder) och
+  // sorterat efter värde. Punkten är skattningen, strecket 95 % KI, den
+  // streckade lodräta linjen länet. Färgen är testets utfall mot länet.
+  function ritaOmraden() {
+    const omrSk = sk.filter(d => d.gt === "RegSO");
+    const ar = d3.max(omrSk, d => d.ar);
+    const lan = rad(ar, "Halland", "Totalt", "Totalt");
+    const namn = new Map(data.omraden.map(o => [o.kod, o]));
+    const ut = utfallFor("regso", true);
+    const rader = omrSk.filter(d => d.ar === ar && synlig(d)).map(d => ({ d, kod: d.g,
+      namn: (namn.get(d.g) || {}).namn || d.g, kommun: (namn.get(d.g) || {}).kommun || "", u: ut[d.g] || "ej" }));
+    const dolda = omrSk.filter(d => d.ar === ar && !synlig(d)).length;
+    if (!rader.length) {
+      ram.svgWrap.append("p").attr("class", "hlv-tom").text(`Inget område har tillräckligt många svarande (minst 100) för att redovisas ${ar}.`);
+      return;
+    }
+    const ordning = (data.kommuner_ordning || []).filter(k => rader.some(r => r.kommun === k));
+    const grupper = [...ordning, ...[...new Set(rader.map(r => r.kommun))].filter(k => !ordning.includes(k))]
+      .map(k => ({ kommun: k, rader: rader.filter(r => r.kommun === k).sort((a, b) => b.d.v - a.d.v) }));
+
+    const W = ritW(), smal = W < 600;
+    const mL = smal ? 150 : 230, mR = 64, mT = 30, radH = 19, kommunH = 26, mB = 30;
+    let y = mT;
+    grupper.forEach(g => { g.y0 = y; y += kommunH; g.rader.forEach(r => { r.y = y + radH / 2; y += radH; }); y += 6; });
+    const H = y + mB;
+    const varden = rader.flatMap(r => [r.d.l, r.d.h]).concat(lan ? [lan.v] : []).filter(v => v != null);
+    let [lo, hi] = d3.extent(varden);
+    const pad = Math.max((hi - lo) * 0.08, andel ? 2 : 0.3);
+    lo = Math.max(andel ? 0 : -Infinity, lo - pad); hi = Math.min(andel ? 100 : Infinity, hi + pad);
+    const x = d3.scaleLinear().domain([lo, hi]).nice(6).range([mL, W - mR]);
+    const svg = ram.svg(W, H);
+    x.ticks(smal ? 4 : 6).forEach(t => {
+      svg.append("line").attr("x1", x(t)).attr("x2", x(t)).attr("y1", mT - 6).attr("y2", H - mB + 4).attr("stroke", "#e3e5e4").attr("stroke-dasharray", "2,3");
+      svg.append("text").attr("x", x(t)).attr("y", H - 10).attr("text-anchor", "middle").attr("font-family", TYP.ui).attr("font-size", 11.5)
+        .attr("fill", FARG.text).text(andel ? `${fmtTal(t)} %` : fmtTal(t, 1));
+    });
+    if (lan) {
+      svg.append("line").attr("x1", x(lan.v)).attr("x2", x(lan.v)).attr("y1", mT - 6).attr("y2", H - mB + 4)
+        .attr("stroke", FARG.text).attr("stroke-width", 1.2).attr("stroke-dasharray", "4,3");
+      svg.append("text").attr("x", x(lan.v)).attr("y", mT - 12).attr("text-anchor", "middle").attr("font-family", TYP.ui)
+        .attr("font-size", 11.5).attr("font-weight", 600).attr("fill", FARG.ink).text(`Länet ${fmtVE(lan.v)}`);
+    }
+    grupper.forEach(g => {
+      svg.append("text").attr("x", 0).attr("y", g.y0 + 17).attr("font-family", TYP.ui).attr("font-size", 13)
+        .attr("font-weight", 650).attr("fill", FARG.ink).text(g.kommun);
+      g.rader.forEach(r => {
+        const f = UTFALL[r.u].farg;
+        const bakgrund = svg.append("rect").attr("x", 0).attr("y", r.y - radH / 2).attr("width", W).attr("height", radH).attr("rx", 4).attr("fill", "transparent");
+        svg.append("text").attr("x", mL - 12).attr("y", r.y).attr("dy", "0.35em").attr("text-anchor", "end").attr("font-family", TYP.ui)
+          .attr("font-size", 12).attr("fill", FARG.ink).text(kort(r.namn, smal ? 20 : 32));
+        if (r.d.l != null && r.d.h != null) svg.append("line").attr("x1", x(r.d.l)).attr("x2", x(r.d.h)).attr("y1", r.y).attr("y2", r.y)
+          .attr("stroke", f).attr("stroke-width", 1.6).attr("stroke-opacity", 0.45).attr("stroke-linecap", "round");
+        markor(svg, x(r.d.v), r.y, "cirkel", f, 4.2);
+        if (UTFALL[r.u].sak) {
+          bock(svg, W - mR + 16, r.y, 6);
+          svg.append("text").attr("x", W - mR + 26).attr("y", r.y).attr("dy", "0.35em")
+            .attr("font-family", TYP.ui).attr("font-size", 11.5).attr("font-weight", 600).attr("fill", FARG.ink).text(fmtVE(r.d.v));
+        }
+        svg.append("rect").attr("x", 0).attr("y", r.y - radH / 2).attr("width", W).attr("height", radH).attr("fill", "transparent")
+          .on("pointermove pointerdown", () => {
+            bakgrund.attr("fill", "#f3f5f4");
+            const diff = lan ? r.d.v - lan.v : null;
+            const html = `<div class="hlv-tt"><div class="hlv-tt-rubrik"><span class="hlv-tt-ar">${r.namn}</span><span class="hlv-tt-under">${r.kommun}, ${ar}</span></div>` +
+              `<table class="hlv-tt-tabell"><thead><tr><th></th><th>Värde</th></tr></thead><tbody>` +
+              `<tr><td class="hlv-tt-namn"><span class="hlv-tt-prick" style="--farg:${f}"></span>Området</td><td><span class="hlv-tt-v">${fmtVE(r.d.v)}</span><span class="hlv-tt-ki">${fmtV(r.d.l)}–${fmtV(r.d.h)}</span></td></tr>` +
+              (lan ? `<tr><td class="hlv-tt-namn">Länet</td><td><span class="hlv-tt-v hlv-tt-v--mjuk">${fmtVE(lan.v)}</span></td></tr>` : "") +
+              `</tbody></table><div class="hlv-tt-fot">${diff != null ? `Skillnad mot länet: ${fmtDiff(diff)} ${ENHET_DIFF}. ` : ""}` +
+              `Testet: ${UTFALL[r.u].text}${UTFALL[r.u].sak ? " ✓" : ""}.${r.d.n != null ? ` ${fmtTal(r.d.n)} svarande.` : ""}</div></div>`;
+            visaTip(html, svg.node(), W, { x0: mL, x1: W - mR, y0: r.y - radH / 2, y1: r.y + radH / 2 }, "ovanunder");
+          })
+          .on("pointerleave", () => { bakgrund.attr("fill", "transparent"); tooltip.dolj(); });
+      });
+    });
+    legend([
+      ...(rader.some(r => UTFALL[r.u].sak) ? [{ namn: "Statistiskt säkerställd skillnad mot länet (grön punkt)", farg: SAK_FARG, bredd: 0, bock: true }] : []),
+      { namn: "Ingen statistiskt säkerställd skillnad (grå punkt)", farg: UTFALL.ingen.farg, bredd: 0, form: "cirkel" }]);
+    const sub = `${MATT}, 16–84 år, ${ar}. En rad per område med minst ${100} svarande; strecket är 95 % konfidensintervall och den streckade linjen länets nivå.`;
+    ram.setSubtitle(sub);
+    const fot = [KALLA, `Områdena är SCB:s regionala statistikområden (RegSO), 2025 års indelning, efter adressen vid urvalsdragningen.`,
+      dolda ? `${dolda} områden med färre än 100 svarande visas inte.` : null, syntetisk ? "OBS: SYNTETISK TESTDATA." : null].filter(Boolean).join(" ");
+    ram.setCaption(fot);
+    sattTabell(["Kommun", "Område", "Värde", "95 % KI, nedre", "95 % KI, övre", "Antal svarande", "Jämfört med länet"],
+      grupper.flatMap(g => g.rader.map(r => [g.kommun, r.namn, fmtV(r.d.v), fmtV(r.d.l), fmtV(r.d.h), r.d.n, UTFALL[r.u].text])));
+    verktyg(svg, W, H, sub, fot);
   }
 
   // ===========================================================================
@@ -925,10 +1184,12 @@ export function hlvFigur(data) {
     if (!byggEl) return;
     const { geoSel, konKnappar, alderSel, alderNot, kand, laggKnapp, listRubrik, listaEl } = byggDelar;
     const kommun = !["Halland", "Riket"].includes(st.bygg.geo);
+    if (kommun) st.bygg.kon = "Totalt";
     geoSel.property("value", st.bygg.geo);
-    konKnappar.forEach((k, i) => k.attr("aria-checked", KON[i] === st.bygg.kon ? "true" : "false").attr("aria-pressed", null));
+    konKnappar.forEach((k, i) => k.attr("aria-checked", KON[i] === st.bygg.kon ? "true" : "false").attr("aria-pressed", null)
+      .property("disabled", kommun && KON[i] !== "Totalt"));
     alderSel.property("disabled", kommun).property("value", kommun ? "alla" : st.bygg.alder);
-    alderNot.text(kommun ? "Kommunerna redovisas inte efter ålder." : "");
+    alderNot.text(kommun ? "Kommunerna redovisas inte efter kön eller ålder." : "");
     const nyckel = `${st.bygg.geo}|${st.bygg.kon}|${kommun ? "alla" : st.bygg.alder}`;
     const d = avkoda(nyckel), ok = tillganglig(nyckel), redan = globalEgen.some(v => v.nyckel === nyckel);
     kand.selectAll("*").remove();
